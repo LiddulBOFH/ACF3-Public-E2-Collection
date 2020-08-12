@@ -1,0 +1,181 @@
+@name Tank Mobility Control CVT
+@inputs [Base RSp LSp RD LD]:entity [E1 E2 GB RGB LGB]:wirelink On W A S D Brake
+@outputs 
+@persist 
+@trigger On W A S D Brake
+
+#[
+ABOUT:
+    This E2 is designed to:
+        -control ACF tank mobility with the following engine/gearbox setup:
+            >CVT RPM control
+            >transfer case steering
+            >up to two engines
+
+SETUP:
+    Wire the following inputs correctly:
+    
+        Entities:
+            -Base: the baseplate of the tank
+            -RSp: the right drive sprocket
+            -LSp: the left drive sprocket
+            -RD: the right drivewheel
+            -LD: the left drivewheel
+            
+        Wirelinks:
+            E1: The first engine
+            E2: The second engine if it exists
+            GB: the CVT
+            LGB: the transfer case powering the left track
+            RGB: the transfer case powering the right track
+        
+        Wire Inputs:
+            On: the Active output of a pod controller linked to the vehicle's seat
+            W,A,S,D: the corresponding outputs of above mentioned pod controller
+            Brake: the output of the above mentioned pod controller you want to brake
+            
+    Common Issues:
+
+        Tank drives backwards:
+            Set a negative final drive on a gearbox.
+        
+        Tank turns the wrong way:
+            Flip the Left and Right gearbox and sprocket inputs or swap the A and D inputs.
+            
+        Brake turning doesn't work:
+            You wired RSp, LSp, RD, and/or LD wrong. Make sure they're on the correct wheels.
+            
+        
+]#
+
+if(first()|duped()|dupefinished()){
+    
+    Wheels=array(RSp,LSp,RD,LD)
+    Base:propSetBuoyancy(0)
+    BrakeLock=1
+    
+    #functions
+    
+        enableConstraintUndo(0)
+        
+        function entity:weldBrake(W,E:entity){
+            if(W){
+                if(E!=This:isWeldedTo()){
+                    weld(This,E)
+                }
+            }else{
+                This:constraintBreak("weld",E)
+            }
+        }
+}
+
+if(~On){
+    if(On){
+        E1["Active",number]=1
+        E1["Throttle",number]=100
+        E2["Active",number]=1
+        E2["Throttle",number]=100
+        
+        LGB["Gear",number]=1
+        LGB["Left Clutch",number]=1
+        LGB["Right Clutch",number]=1
+        
+        RGB["Gear",number]=1
+        RGB["Left Clutch",number]=1
+        RGB["Right Clutch",number]=1
+        
+        RSp:weldBrake(1,Base)
+        LSp:weldBrake(1,Base)
+        RD:weldBrake(1,Base)
+        LD:weldBrake(1,Base)
+        
+    }else{
+        E1["Active",number]=0
+        E1["Throttle",number]=0
+        E2["Active",number]=0
+        E2["Throttle",number]=0
+    }
+   
+}elseif(On){
+    
+    if(~W|~A|~S|~D|~Brake){
+        LT=(W+A)-(S+D)
+        RT=(W+D)-(S+A)
+        
+        if(!Brake){
+            if(LT){
+                E1["Throttle",number]=100
+                E2["Throttle",number]=100
+                
+                RGB["Left Clutch",number]=0
+                RGB["Right Clutch",number]=0
+                
+                RSp:weldBrake(0,Base)
+                RD:weldBrake(0,Base)  
+                             
+                if(LT>0){
+                    RGB["Gear",number]=2
+                }else{
+                    RGB["Gear",number]=1
+                }
+                
+            }else{
+                RGB["Left Clutch",number]=1
+                RGB["Right Clutch",number]=1
+                
+                if(RT){
+                    RSp:weldBrake(1,Base)
+                    RD:weldBrake(1,Base)
+                    
+                }else{
+                    #RSp:weldBrake(0,Base)
+                    #RD:weldBrake(0,Base)
+                }
+            }
+            
+            if(RT){
+                E1["Throttle",number]=100
+                E2["Throttle",number]=100
+                
+                LGB["Left Clutch",number]=0
+                LGB["Right Clutch",number]=0
+                
+                LSp:weldBrake(0,Base)
+                LD:weldBrake(0,Base)
+                
+                if(RT>0){
+                LGB["Gear",number]=1
+                }else{
+                    LGB["Gear",number]=2
+                }
+            }else{
+                LGB["Left Clutch",number]=1
+                LGB["Right Clutch",number]=1
+                
+                if(LT){
+                    LSp:weldBrake(1,Base)
+                    LD:weldBrake(1,Base)
+                }else{
+                    #LSp:weldBrake(0,Base)
+                    #LD:weldBrake(0,Base)
+                }
+            }
+        }else{
+            E1["Throttle",number]=0
+            E2["Throttle",number]=0
+            
+            RSp:weldBrake(1,Base)
+            RD:weldBrake(1,Base)
+            
+            LSp:weldBrake(1,Base)
+            LD:weldBrake(1,Base)
+            
+            
+            LGB["Left Clutch",number]=1
+            LGB["Right Clutch",number]=1
+            
+            RGB["Left Clutch",number]=1
+            RGB["Right Clutch",number]=1
+        }
+    }
+}
