@@ -49,8 +49,6 @@ SETUP:
 ]#
 
 if(first()|duped()|dupefinished()){
-    
-    Wheels=array(RSp,LSp,RD,LD)
     Base:propSetBuoyancy(0)
     BrakeLock=1
     
