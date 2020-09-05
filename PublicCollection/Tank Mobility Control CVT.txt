@@ -79,6 +79,15 @@ if(first()|duped()|dupefinished()){
             return Wheels
         }
         
+        function wirelink:unfreezeWheels(){
+            local Wheels=This:getWheels()
+            local Count=Wheels:count()
+            Base:propFreeze(0)
+            for(I=1,Count){
+                Wheels[I,entity]:propFreeze(0)   
+            }
+        }
+        
         function array:weldBrake(W,E:entity){
             local Count=This:count()
             for(I=1,Count){
@@ -99,6 +108,9 @@ if(~On){
     
     LWheels:weldBrake(1,Base)
     RWheels:weldBrake(1,Base)
+    
+    LGB:unfreezeWheels()
+    RGB:unfreezeWheels()
     
     if(On){
         E1["Active",number]=1
