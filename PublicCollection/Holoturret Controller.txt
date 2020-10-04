@@ -1,14 +1,15 @@
 @name Holoturret Controller
 @inputs On [Base Seat G1 TR1]:entity [Pod Cam1 EGP]:wirelink
 @outputs APos:vector
-@persist Init Ready [Filter HUDcolors Turrets Coplanars Fixeds AmmoIndex]:array TurretCount CoplanarCount FixedsCount [Ammo AmmoTypes Guns FCSMode]:table [Driver CParent Gun ACFGun Sight]:entity FOV GunIndex FCSIndex FLIR
+@persist Init Ready [Filter HUDcolors Turrets Coplanars Fixeds AmmoIndex]:array TurretCount CoplanarCount FixedsCount [Ammo AmmoTypes Guns FCSMode]:table [Driver CParent Gun ACFGun]:entity FOV GunIndex FCSIndex FLIR
 @persist GunLock CamDist MV DC G:vector DPos:vector DAng:angle
-@persist GTracker BTracker TTracker CamH CamD GState:string GRounds
+@persist GTracker BTracker TTracker GState:string GRounds CurCam CamCount Cams:table
 @trigger On Init Ready
 #[
 ABOUT:
     This E2 is designed to:
         -control multiple holoturrets on ACF vehicles
+        -allow the creation of multiple camera positions for ACF vehicles
         -allow selection of different gun groups for ammo selection and ballistics
         -allow for ammo selection of up to 3 ammo types per gun group
         -provide a HUD with useful data such as ammo count, selected ammo type, range, gun aim-point, predicted impact point, and turret angle
@@ -45,14 +46,15 @@ SETUP:
                 -Cam1: Wirelink to the Cam Controller
                 -EGP: Wirelink to the EGP
     
-    CHANGING CAM POSITION:
-        -third person camera position is determined by CamH (Cam Height) and CamD(Cam Distance), set at the top of if(first())
-        -first person sight position is determined by the initGunSight() function, called in init().
-            >initGunSight()
+    CHANGING CAM POSITIONS:
+        -cams are created in the init() function
+        -to create a cam call the initCamPos() function inside the init() function
+        -function usage
+            >initCamPos()
                 arguments:
-                    B: baseplate entity
-                    P: parent entity
-                    O: offset vector
+                    P: the parent of the camera
+                    O: the offset of the camera local to the parent
+                    D: the distance of the camera from the point of rotation
     
     CHANGING A TURRET'S CHARACTERISTICS:
         -edit the initTurret() function's inputs inside the init() function
@@ -61,7 +63,7 @@ SETUP:
     ADDING A NEW TURRET:
         -turrets are created in the init() function
         -add the relevant entities to @inputs
-        -to create a turret call the initTurret(), initCoplanar, or initFixed() functions inside the init function()
+        -to create a turret call the initTurret(), initCoplanar, or initFixed() functions inside the init() function
         -Coplanars have independent pitch but their only yaw is gun convergence
         -fixed guns are simply paranted to another object
         -always create turrets stacked on top of or attached to other turrets after the one they are attached to
@@ -111,16 +113,22 @@ SETUP:
             >write your ballistic mode as a new runFCS() function inside the case block.
             
 FAQ:
+
+    How do I move the camera position?
+        -Edit the initCamPos() function inside the init() function.
+    
+    How do I create another camera position such as a driver view or aim down sights?
+        -Add another initCamPos() function inside the init() function.
     
 FOR QUESTIONS & ISSUES: https://discord.gg/eKydWE @worldpeace#1541
 ]#
 
 if(first()|duped()|dupefinished()){
-    #persisted variables
-        CamH=64
-        CamD=300
         
     #initialization
+        holoDeleteAll()
+        CamCount=0
+        CurCam=0
         TurretCount=0
         CoplanarCount=0
         FixedsCount=0
@@ -234,17 +242,29 @@ if(first()|duped()|dupefinished()){
             }
         }
         
-        function initGunSight(B:entity,P:entity,O:vector){
-            B["S_Parent",entity]=P
-            Amount=holoAmount()
-            Sight=holoCreate(Amount+1,P:pos()+B:toWorld(O)-B:pos(),vec(0.1,0.1,0.1),B:toWorld(ang()),vec(0,255,0))
+        function initCamPos(P:entity,O:vector,D){
+            CamCount++
+            
+            local Amount=holoAmount()
+            local Camera=holoCreate(Amount+1,P:pos()+P:toWorld(O)-P:pos(),vec(0.1,0.1,0.1),P:toWorld(ang()),vec(0,255,0))
+            
+            if(P["Parent",entity]:isValid()){
+                P=P["Parent",entity] 
+            }
             holoParent(Amount+1,P)
+            
+            Cams["Parent"+CamCount,entity]=Camera
+            Cams["Offset"+CamCount,vector]=O
+            Cams["Distance"+CamCount,number]=D
+            Cams["FilterDistance"+CamCount,number]=D+O:length()
+            
         }
         
         function init(){
             initTurret(G1,TR1,Base,40,ang(-7,-360,0),ang(7,360,0),vec(0,0,0),vec(0,0,0))
-            
-            initGunSight(Base,G1,vec(8,27,20))
+                
+            initCamPos(Base,vec(0,0,200),200)
+            initCamPos(TR1,vec(0,-50,50),0)
         }
         
         function entity:buildTurret(){
@@ -329,8 +349,10 @@ if(first()|duped()|dupefinished()){
                 Fixeds[I,entity]:buildFixed()   
             }
             
-            holoAlpha(holoIndex(Sight),0)
-            holoScale(holoIndex(Sight),vec())
+            for(I=1,CamCount){
+                holoScale(holoIndex(Cams["Parent"+I,entity]),vec())   
+            }
+            
         }
         
         function hudHolos(){
@@ -553,17 +575,32 @@ if(first()|duped()|dupefinished()){
         
         function entity:updateBallistics(){
             Fuze=0
-            if(This:acfAmmoType()!="FL"){
-                if(This:acfAmmoType()!="Empty"){
-                MV=fromUnit("m",This:acfMuzzleVel())*0.75
-                DC=(3.1416*(This:acfCaliber()*0.05)^2)/10000/(This:acfProjectileMass()*acfDragDiv())
-                }else{
+            
+            switch(This:acfAmmoType()){
+                case"FL",
+                    MV=fromUnit("m",This:acfMuzzleVel())*0.75
+                    DC=(3.1416*(This:acfFLSpikeRadius()*0.1)^2)/10000/(This:acfProjectileMass()*acfDragDiv())
+                break
+                case "APDS",
+                    MV=fromUnit("m",This:acfMuzzleVel())*0.75
+                    DC=(3.1416*(This:acfCaliber()*0.375*0.05)^2)/10000/(This:acfProjectileMass()*acfDragDiv())
+                break
+                case "APFSDS",
+                    MV=fromUnit("m",This:acfMuzzleVel())*0.75
+                    DC=(3.1416*(This:acfCaliber()*0.29*0.05)^2)/10000/(This:acfProjectileMass()*acfDragDiv())
+                break
+                case "APCR",
+                    MV=fromUnit("m",This:acfMuzzleVel())*0.75
+                    DC=(3.1416*(This:acfCaliber()*0.29*0.05)^2)*1.25/10000/(This:acfProjectileMass()*acfDragDiv())
+                break
+                case "Empty",
                     MV=fromUnit("m",900)*0.75
                     DC=0
-                }
-            }else{
-                MV=fromUnit("m",This:acfMuzzleVel())*0.75
-                DC=(3.1416*(This:acfFLSpikeRadius()*0.1)^2)/10000/(This:acfProjectileMass()*acfDragDiv())
+                break
+                default,
+                    MV=fromUnit("m",This:acfMuzzleVel())*0.75
+                    DC=(3.1416*(This:acfCaliber()*0.05)^2)/10000/(This:acfProjectileMass()*acfDragDiv())
+                break
             }
         }
         
@@ -611,27 +648,15 @@ if(first()|duped()|dupefinished()){
             return Array
         }
         
-        function initCam(){
-            CParent=Base
-            Cam1["Activated",number]=1
-            Cam1["Position",vector]=Base:pos()+Base:up()*CamH
-            CamDist=CamD
-            Cam1["Distance",number]=CamD
-            Cam1["Parent",entity]=Base   
+        function changeCam(){
+            CurCam=1+(CurCam%CamCount)
+            
+            Cam1["Parent",entity]=Cams["Parent"+CurCam,entity]
+            Cam1["Position",vector]=Cams["Parent"+CurCam,entity]:pos()
+            Cam1["Distance",number]=Cams["Distance"+CurCam,number]
+            CamDist=Cams["FilterDistance"+CurCam,number]
         }
         
-        function changeCam(){
-            if(CParent==Base){
-                CParent=Sight
-                Cam1["Activated",number]=1
-                Cam1["Position",vector]=Sight:pos()
-                CamDist=0
-                Cam1["Distance",number]=CamDist
-                Cam1["Parent",entity]=Sight
-            }else{
-                initCam()
-            }
-        }
         function selectFCS(Mode){
             #initialize FCS
             FCSMode[1,string]="OFF"
@@ -793,6 +818,7 @@ if(first()|duped()|dupefinished()){
     
     if(Init==1){
         build()
+        changeCam()
         
         Filter=Base:getConnectedEntities()
         
@@ -815,11 +841,8 @@ if(changed(On)){
         runOnKeys(Driver,0)
         Driver=Seat:driver()
         runOnKeys(Driver,1)
-        
         EGP:egpInit()
-        FOV=75
-        initCam()
-        
+        Cam1["Activated",number]=1
         timer("hclk",250)
         
     }else{
